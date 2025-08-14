@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__playwright__browser_navigate",
+      "mcp__playwright__browser_console_messages",
+      "mcp__playwright__browser_take_screenshot",
+      "mcp__playwright__browser_click",
+      "mcp__playwright__browser_wait_for",
+      "Bash(npx vite:*)",
+      "Bash(cp:*)",
+      "mcp__cloud-run__deploy_local_folder",
+      "mcp__cloud-run__get_service_log",
+      "Bash(npm run build:*)",
+      "mcp__cloud-run__get_service",
+      "mcp__playwright__browser_press_key",
+      "mcp__playwright__browser_close",
+      "mcp__playwright__browser_network_requests",
+      "mcp__playwright__browser_evaluate",
+      "mcp__playwright__browser_type",
+      "Bash(gcloud run services describe:*)",
+      "Bash(gcloud logs tail:*)"
+    ],
+    "defaultMode": "acceptEdits"
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "cloud-run",
+    "github",
+    "firebase",
+    "playwright",
+    "context7"
+  ]
+}

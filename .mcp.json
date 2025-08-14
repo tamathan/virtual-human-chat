@@ -1,0 +1,31 @@
+{
+  "mcpServers": {
+    "cloud-run": {
+      "command": "cmd",
+      "args": ["/c","npx","-y","https://github.com/GoogleCloudPlatform/cloud-run-mcp"],
+      "env": {
+        "GOOGLE_CLOUD_PROJECT": "${GCP_PROJECT_ID}",
+        "GOOGLE_CLOUD_REGION":  "${GCP_REGION}"
+      }
+    },
+    "github": {
+      "command": "cmd",
+      "args": ["/c", "npx", "-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}"
+      }
+    },
+    "firebase": {
+      "command": "cmd",
+      "args": ["/c","npx","-y","firebase-tools@latest","experimental:mcp"]
+    },
+    "playwright": {
+      "command": "cmd",
+      "args": ["/c","npx","-y","@playwright/mcp@latest"]
+    },
+    "context7": {
+      "command": "cmd",
+      "args": ["/c","npx","-y","@upstash/context7-mcp@latest"]
+    }
+  }
+}
