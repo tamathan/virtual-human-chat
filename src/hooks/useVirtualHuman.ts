@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useChatStore } from '@/store/chat-store'
 import { AudioProcessor, AudioProcessorOptions, AudioStatus } from '@/lib/audio/audio-processor'
-import { GeminiLiveAPIClient } from '@/lib/gemini/live-api-client'
+import { GeminiLiveAPIClientV2 } from '@/lib/gemini/live-api-client-v2'
 import { TokenService } from '@/lib/api/token-service'
 
 export function useVirtualHuman() {
@@ -20,7 +20,7 @@ export function useVirtualHuman() {
   } = useChatStore()
 
   const audioProcessorRef = useRef<AudioProcessor | null>(null)
-  const geminiClientRef = useRef<GeminiLiveAPIClient | null>(null)
+  const geminiClientRef = useRef<GeminiLiveAPIClientV2 | null>(null)
   const [isInitialized, setIsInitialized] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<string>('disconnected')
   const [reconnectInfo, setReconnectInfo] = useState({ attempts: 0, maxAttempts: 5, isReconnecting: false })
@@ -56,11 +56,10 @@ export function useVirtualHuman() {
       }
 
       const processor = new AudioProcessor(
-        (audioData) => {
-          // Send audio to Gemini when recording
-          if (mic === 'recording' && geminiClientRef.current) {
-            geminiClientRef.current.sendAudio(audioData)
-          }
+        (_audioData) => {
+          // Audio data is now handled by the new client internally
+          // The V2 client handles audio streaming directly
+          console.log('Audio data received from processor')
         },
         (error) => {
           console.error('Audio processor error:', error)
@@ -119,16 +118,17 @@ export function useVirtualHuman() {
       // Initialize audio on user gesture (if not already initialized)
       await initializeAudioWithUserGesture()
 
-      // Get ephemeral token
-      console.log('Getting ephemeral token...')
-      const tokenData = await TokenService.getEphemeralToken()
-      console.log('Token received:', { expiresAt: tokenData.expiresAt })
-      setToken(tokenData.token, tokenData.expiresAt)
+      // Get API key from environment
+      console.log('Using direct API key for Gemini Live...')
+      const apiKey = import.meta.env.VITE_GEMINI_API_KEY
+      if (!apiKey) {
+        throw new Error('VITE_GEMINI_API_KEY not configured in environment variables')
+      }
 
-      // Create Gemini client
+      // Create Gemini client with direct API key
       console.log('Creating Gemini Live API client...')
-      const client = new GeminiLiveAPIClient(
-        tokenData.token,
+      const client = new GeminiLiveAPIClientV2(
+        apiKey,
         (message) => {
           console.log('Received message from Gemini:', message.type)
           // Handle messages from Gemini
@@ -204,23 +204,15 @@ export function useVirtualHuman() {
       return
     }
 
-    // Try to initialize audio if not already done (with user gesture)
-    if (!audioProcessorRef.current) {
-      const initialized = await initializeAudioWithUserGesture()
-      if (!initialized) {
-        setError('音声機能を初期化できませんでした。ブラウザの設定をご確認ください。')
-        return
-      }
-    }
-
     if (mic === 'idle') {
-      // Start recording
+      // Start recording using new client
       try {
-        audioProcessorRef.current!.startRecording()
+        await geminiClientRef.current!.startRecording()
         setMic('recording')
         addMessage({
           role: 'user',
-          text: '🎤 音声入力中...'
+          text: '🎤 音声入力中...',
+          messageType: 'audio'
         })
       } catch (error) {
         console.error('Failed to start recording:', error)
@@ -229,7 +221,7 @@ export function useVirtualHuman() {
       }
     } else {
       // Stop recording
-      audioProcessorRef.current!.stopRecording()
+      geminiClientRef.current!.stopRecording()
       setMic('idle')
     }
   }
