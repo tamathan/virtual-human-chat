@@ -15,7 +15,7 @@ export function SimpleAvatar({
   useEffect(() => {
     if (!isAnimated) return
     
-    const blinkInterval = setInterval(() => {
+    const blinkInterval: ReturnType<typeof setInterval> = setInterval(() => {
       setBlinkPhase(prev => (prev + 1) % 100)
     }, 100)
     
@@ -29,7 +29,7 @@ export function SimpleAvatar({
       return
     }
     
-    const mouthInterval = setInterval(() => {
+    const mouthInterval: ReturnType<typeof setInterval> = setInterval(() => {
       setMouthPhase(prev => (prev + 1) % 4)
     }, 200 - (speechIntensity * 100)) // 音声強度で速度調整
     

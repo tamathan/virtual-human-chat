@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useMemo } from 'react'
 import { cn } from '@/lib/utils'
 import { useChatStore } from '@/store/chat-store'
 import { SpeechBubble } from './SpeechBubble'
@@ -48,8 +48,8 @@ export function ConversationPanel() {
     return 'idle'
   }
 
-  // アバターの感情を決定（メッセージ内容から推定）
-  const getAvatarEmotion = (): AvatarEmotion => {
+  // アバターの感情を決定（メッセージ内容から推定）- useMemoで最適化
+  const avatarEmotion = useMemo((): AvatarEmotion => {
     if (history.length === 0) return 'neutral'
     
     const latestMessage = history[history.length - 1]
@@ -72,13 +72,20 @@ export function ConversationPanel() {
     }
     
     return 'neutral'
-  }
+  }, [history])
+
+  // 音声強度管理の安定化
+  const micStatus = useMemo(() => mic, [mic])
+  const shouldSimulate = useMemo(() => 
+    currentSpeaker === 'assistant' || (micStatus === 'recording' && recording),
+    [currentSpeaker, micStatus, recording]
+  )
 
   // 音声強度を模擬（実際のWebAudio APIから取得する場合はここを置き換え）
   useEffect(() => {
-    let interval: number | undefined
+    let interval: ReturnType<typeof setInterval> | undefined
     
-    if (currentSpeaker === 'assistant' || (mic === 'recording' && recording)) {
+    if (shouldSimulate) {
       interval = setInterval(() => {
         setSpeechIntensity(Math.random() * 0.8 + 0.2) // 0.2-1.0の範囲
       }, 100)
@@ -89,7 +96,7 @@ export function ConversationPanel() {
     return () => {
       if (interval) clearInterval(interval)
     }
-  }, [currentSpeaker, mic, recording])
+  }, [shouldSimulate])
 
   return (
     <div className="flex h-full">
@@ -97,7 +104,7 @@ export function ConversationPanel() {
       <div className="w-80 bg-gradient-to-b from-blue-50 to-green-50 border-r border-gray-200 flex flex-col items-center justify-center p-6">
         <SimpleAvatar
           state={getAvatarState()}
-          emotion={getAvatarEmotion()}
+          emotion={avatarEmotion}
           speechIntensity={speechIntensity}
           isAnimated={true}
         />
