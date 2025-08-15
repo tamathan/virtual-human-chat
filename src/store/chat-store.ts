@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { ConnectionStatus, ChatMessage } from '../types'
 
-export type MicState = 'idle' | 'recording'
+export type MicState = 'idle' | 'connecting' | 'recording'
 export type PlaybackState = 'idle' | 'playing'
 export type RecordingState = boolean
 

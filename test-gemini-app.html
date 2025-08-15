@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gemini Live API Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .status {
+            text-align: center;
+            margin-bottom: 20px;
+            font-size: 18px;
+            font-weight: bold;
+        }
+        
+        .disconnected { color: #dc3545; }
+        .connecting { color: #ffc107; }
+        .connected { color: #28a745; }
+        
+        .controls {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+        }
+        
+        button {
+            padding: 12px 24px;
+            font-size: 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        
+        .connect-btn {
+            background-color: #28a745;
+            color: white;
+        }
+        
+        .connect-btn:hover {
+            background-color: #218838;
+        }
+        
+        .record-btn {
+            background-color: #dc3545;
+            color: white;
+        }
+        
+        .record-btn:hover {
+            background-color: #c82333;
+        }
+        
+        .record-btn:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+        
+        .stop-btn {
+            background-color: #6c757d;
+            color: white;
+        }
+        
+        .stop-btn:hover {
+            background-color: #5a6268;
+        }
+        
+        .disconnect-btn {
+            background-color: #ffc107;
+            color: black;
+        }
+        
+        .disconnect-btn:hover {
+            background-color: #e0a800;
+        }
+        
+        .logs {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            padding: 15px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 14px;
+        }
+        
+        .log-entry {
+            margin-bottom: 5px;
+            padding: 2px 0;
+        }
+        
+        .log-info { color: #007bff; }
+        .log-warn { color: #ffc107; }
+        .log-error { color: #dc3545; }
+        
+        .mic-indicator {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-left: 10px;
+        }
+        
+        .mic-off { background-color: #6c757d; }
+        .mic-on { background-color: #dc3545; animation: pulse 1s infinite; }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎤 Gemini Live API テスト</h1>
+        
+        <div id="status" class="status disconnected">
+            未接続 <span id="mic-indicator" class="mic-indicator mic-off"></span>
+        </div>
+        
+        <div class="controls">
+            <button id="connectBtn" class="connect-btn">接続</button>
+            <button id="recordBtn" class="record-btn" disabled>録音開始</button>
+            <button id="stopBtn" class="stop-btn" disabled>録音停止</button>
+            <button id="disconnectBtn" class="disconnect-btn" disabled>切断</button>
+        </div>
+        
+        <div class="logs" id="logs"></div>
+    </div>
+
+    <script type="module">
+        // Import the Google GenAI library
+        import { GoogleGenAI } from 'https://esm.run/@google/genai@0.9.0';
+
+        const API_KEY = 'AIzaSyDRmBWW7ROXeW1Mb_GI6yRIQQa7tFQUHTg';
+        
+        let client = null;
+        let session = null;
+        let isRecording = false;
+        let inputAudioContext = null;
+        let outputAudioContext = null;
+        let mediaStream = null;
+        let sourceNode = null;
+        let scriptProcessorNode = null;
+        let nextStartTime = 0;
+        let sources = new Set();
+
+        // UI elements
+        const statusEl = document.getElementById('status');
+        const micIndicator = document.getElementById('mic-indicator');
+        const connectBtn = document.getElementById('connectBtn');
+        const recordBtn = document.getElementById('recordBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const disconnectBtn = document.getElementById('disconnectBtn');
+        const logsEl = document.getElementById('logs');
+
+        // Utility functions
+        function log(message, level = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.className = `log-entry log-${level}`;
+            logEntry.textContent = `[${timestamp}] ${message}`;
+            logsEl.appendChild(logEntry);
+            logsEl.scrollTop = logsEl.scrollHeight;
+            console.log(`[${level.toUpperCase()}] ${message}`);
+        }
+
+        function updateStatus(text, className, recording = false) {
+            statusEl.textContent = text;
+            statusEl.className = `status ${className}`;
+            micIndicator.className = `mic-indicator ${recording ? 'mic-on' : 'mic-off'}`;
+        }
+
+        function encode(bytes) {
+            let binary = '';
+            const len = bytes.byteLength;
+            for (let i = 0; i < len; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            return btoa(binary);
+        }
+
+        function decode(base64) {
+            const binaryString = atob(base64);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            return bytes;
+        }
+
+        function createBlob(data) {
+            const l = data.length;
+            const int16 = new Int16Array(l);
+            for (let i = 0; i < l; i++) {
+                int16[i] = data[i] * 32768;
+            }
+            return {
+                data: encode(new Uint8Array(int16.buffer)),
+                mimeType: 'audio/pcm;rate=16000',
+            };
+        }
+
+        async function decodeAudioData(data, ctx, sampleRate, numChannels) {
+            const buffer = ctx.createBuffer(
+                numChannels,
+                data.length / 2 / numChannels,
+                sampleRate,
+            );
+
+            const dataInt16 = new Int16Array(data.buffer);
+            const l = dataInt16.length;
+            const dataFloat32 = new Float32Array(l);
+            for (let i = 0; i < l; i++) {
+                dataFloat32[i] = dataInt16[i] / 32768.0;
+            }
+
+            if (numChannels === 1) {
+                buffer.copyToChannel(dataFloat32, 0);
+            } else {
+                for (let i = 0; i < numChannels; i++) {
+                    const channel = dataFloat32.filter(
+                        (_, index) => index % numChannels === i,
+                    );
+                    buffer.copyToChannel(channel, i);
+                }
+            }
+
+            return buffer;
+        }
+
+        // Connect to Gemini Live API
+        async function connect() {
+            try {
+                log('接続を開始しています...');
+                updateStatus('接続中...', 'connecting');
+                connectBtn.disabled = true;
+
+                // Initialize audio contexts
+                inputAudioContext = new (window.AudioContext || window.webkitAudioContext)({
+                    sampleRate: 16000
+                });
+                outputAudioContext = new (window.AudioContext || window.webkitAudioContext)({
+                    sampleRate: 24000
+                });
+                nextStartTime = outputAudioContext.currentTime;
+
+                // Initialize GenAI client
+                client = new GoogleGenAI({
+                    apiKey: API_KEY,
+                });
+
+                // Connect to session
+                session = await client.live.connect({
+                    model: 'gemini-2.5-flash-preview-native-audio-dialog',
+                    callbacks: {
+                        onopen: () => {
+                            log('セッションが開かれました');
+                            updateStatus('接続済み', 'connected');
+                            recordBtn.disabled = false;
+                            disconnectBtn.disabled = false;
+                        },
+                        onmessage: async (message) => {
+                            log('メッセージを受信しました');
+                            await handleMessage(message);
+                        },
+                        onerror: (error) => {
+                            log(`セッションエラー: ${error.message}`, 'error');
+                        },
+                        onclose: (event) => {
+                            log(`セッションが閉じられました: ${event.reason}`);
+                            updateStatus('切断されました', 'disconnected');
+                            resetUI();
+                        }
+                    },
+                    config: {
+                        responseModalities: ['AUDIO'],
+                        speechConfig: {
+                            voiceConfig: {
+                                prebuiltVoiceConfig: {
+                                    voiceName: 'Orus'
+                                }
+                            }
+                        }
+                    }
+                });
+
+                log('接続が成功しました！');
+
+            } catch (error) {
+                log(`接続エラー: ${error.message}`, 'error');
+                updateStatus('接続失敗', 'disconnected');
+                resetUI();
+            }
+        }
+
+        // Handle incoming messages
+        async function handleMessage(message) {
+            try {
+                const audio = message.serverContent?.modelTurn?.parts?.[0]?.inlineData;
+
+                if (audio && outputAudioContext) {
+                    log('音声レスポンスを処理中...');
+
+                    nextStartTime = Math.max(
+                        nextStartTime,
+                        outputAudioContext.currentTime,
+                    );
+
+                    const audioBuffer = await decodeAudioData(
+                        decode(audio.data || ''),
+                        outputAudioContext,
+                        24000,
+                        1,
+                    );
+
+                    const source = outputAudioContext.createBufferSource();
+                    source.buffer = audioBuffer;
+                    source.connect(outputAudioContext.destination);
+
+                    source.addEventListener('ended', () => {
+                        sources.delete(source);
+                        log('音声再生が終了しました');
+                    });
+
+                    source.start(nextStartTime);
+                    nextStartTime = nextStartTime + audioBuffer.duration;
+                    sources.add(source);
+
+                    log('音声再生を開始しました');
+                }
+
+                const interrupted = message.serverContent?.interrupted;
+                if (interrupted) {
+                    log('音声が中断されました');
+                    for (const source of sources.values()) {
+                        source.stop();
+                        sources.delete(source);
+                    }
+                    nextStartTime = 0;
+                }
+
+            } catch (error) {
+                log(`メッセージ処理エラー: ${error.message}`, 'error');
+            }
+        }
+
+        // Start recording
+        async function startRecording() {
+            if (isRecording || !session) return;
+
+            try {
+                log('録音を開始しています...');
+                updateStatus('録音準備中...', 'connecting');
+
+                if (inputAudioContext.state === 'suspended') {
+                    log('音声コンテキストを再開しています...');
+                    await inputAudioContext.resume();
+                }
+
+                // Check if permissions API is available
+                if ('permissions' in navigator) {
+                    try {
+                        const permissionStatus = await navigator.permissions.query({name: 'microphone'});
+                        log(`マイク権限状態: ${permissionStatus.state}`);
+                        
+                        if (permissionStatus.state === 'denied') {
+                            throw new Error('マイクへのアクセスが拒否されています。ブラウザの設定で許可してください。');
+                        }
+                    } catch (permError) {
+                        log(`権限確認エラー: ${permError.message}`, 'warn');
+                    }
+                }
+
+                log('マイクアクセスを要求しています...');
+                mediaStream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        channelCount: 1,
+                        sampleRate: 16000,
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true
+                    },
+                    video: false,
+                });
+
+                log('マイクアクセス許可されました');
+                log(`マイクトラック数: ${mediaStream.getAudioTracks().length}`);
+
+                // Create audio processing pipeline
+                sourceNode = inputAudioContext.createMediaStreamSource(mediaStream);
+                log('MediaStreamSourceNode 作成完了');
+
+                const bufferSize = 256;
+                scriptProcessorNode = inputAudioContext.createScriptProcessor(
+                    bufferSize,
+                    1,
+                    1,
+                );
+                log('ScriptProcessorNode 作成完了');
+
+                let audioChunkCount = 0;
+                scriptProcessorNode.onaudioprocess = (audioProcessingEvent) => {
+                    if (!isRecording || !session) return;
+
+                    const inputBuffer = audioProcessingEvent.inputBuffer;
+                    const pcmData = inputBuffer.getChannelData(0);
+
+                    // Calculate RMS for monitoring
+                    let rms = 0;
+                    for (let i = 0; i < pcmData.length; i++) {
+                        rms += pcmData[i] * pcmData[i];
+                    }
+                    rms = Math.sqrt(rms / pcmData.length);
+
+                    try {
+                        session.sendRealtimeInput({ media: createBlob(pcmData) });
+                        audioChunkCount++;
+                        
+                        // Log every 100 chunks to avoid spam
+                        if (audioChunkCount % 100 === 0) {
+                            log(`音声チャンク送信: ${audioChunkCount} (RMS: ${rms.toFixed(4)})`);
+                        }
+                    } catch (error) {
+                        log(`音声データ送信エラー: ${error.message}`, 'error');
+                    }
+                };
+
+                // Connect the pipeline
+                sourceNode.connect(scriptProcessorNode);
+                scriptProcessorNode.connect(inputAudioContext.destination);
+                log('音声パイプライン接続完了');
+
+                isRecording = true;
+                updateStatus('録音中...', 'connected', true);
+                recordBtn.disabled = true;
+                stopBtn.disabled = false;
+
+                log('録音が開始されました - 話してください！');
+
+            } catch (error) {
+                log(`録音エラー: ${error.message}`, 'error');
+                
+                let userMessage = '録音開始に失敗しました。';
+                if (error.name === 'NotAllowedError') {
+                    userMessage = 'マイクへのアクセスが拒否されました。ブラウザの設定でマイクを許可してから再試行してください。';
+                    log('マイク権限が拒否されました - ブラウザ設定を確認してください', 'error');
+                } else if (error.name === 'NotFoundError') {
+                    userMessage = 'マイクが見つかりません。マイクが接続されているか確認してください。';
+                    log('マイクデバイスが見つかりません', 'error');
+                } else if (error.name === 'NotReadableError') {
+                    userMessage = 'マイクが他のアプリケーションで使用中です。';
+                    log('マイクが他のアプリケーションで使用中', 'error');
+                } else {
+                    userMessage = `エラー: ${error.message}`;
+                }
+                
+                updateStatus(userMessage, 'disconnected');
+                stopRecording();
+            }
+        }
+
+        // Stop recording
+        function stopRecording() {
+            if (!isRecording) return;
+
+            log('録音を停止しています...');
+
+            isRecording = false;
+            updateStatus('接続済み', 'connected');
+
+            if (scriptProcessorNode) {
+                scriptProcessorNode.disconnect();
+                scriptProcessorNode = null;
+            }
+
+            if (sourceNode) {
+                sourceNode.disconnect();
+                sourceNode = null;
+            }
+
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(track => track.stop());
+                mediaStream = null;
+            }
+
+            recordBtn.disabled = false;
+            stopBtn.disabled = true;
+
+            log('録音が停止されました');
+        }
+
+        // Disconnect
+        function disconnect() {
+            log('切断しています...');
+
+            stopRecording();
+
+            if (session) {
+                session.close();
+                session = null;
+            }
+
+            if (inputAudioContext) {
+                inputAudioContext.close();
+                inputAudioContext = null;
+            }
+
+            if (outputAudioContext) {
+                outputAudioContext.close();
+                outputAudioContext = null;
+            }
+
+            client = null;
+            sources.clear();
+
+            updateStatus('切断されました', 'disconnected');
+            resetUI();
+
+            log('切断しました');
+        }
+
+        function resetUI() {
+            connectBtn.disabled = false;
+            recordBtn.disabled = true;
+            stopBtn.disabled = true;
+            disconnectBtn.disabled = true;
+        }
+
+        // Event listeners
+        connectBtn.addEventListener('click', connect);
+        recordBtn.addEventListener('click', startRecording);
+        stopBtn.addEventListener('click', stopRecording);
+        disconnectBtn.addEventListener('click', disconnect);
+
+        // Initial log
+        log('Gemini Live API テストアプリが開始されました');
+    </script>
+</body>
+</html>

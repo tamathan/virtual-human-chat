@@ -230,6 +230,26 @@ app.get('/api/gemini/ws-url', TokenService.authenticateToken, (req, res) => {
   res.json({ wsUrl });
 });
 
+// Secure Gemini API key endpoint for JavaScript SDK
+app.get('/api/gemini/config', TokenService.authenticateToken, (req, res) => {
+  if (!GEMINI_API_KEY) {
+    return res.status(500).json({ error: 'Gemini API key not configured' });
+  }
+
+  logger.info({
+    action: 'gemini_config_provided',
+    userId: req.user.id,
+    timestamp: new Date().toISOString()
+  });
+
+  // Return securely proxied API key for authenticated requests only
+  res.json({ 
+    apiKey: GEMINI_API_KEY,
+    model: 'gemini-2.5-flash-preview-native-audio-dialog',
+    region: 'us-central1'
+  });
+});
+
 // Serve React app for all other routes (SPA fallback)
 app.get('*', (req, res) => {
   // Skip API routes

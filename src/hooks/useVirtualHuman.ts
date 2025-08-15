@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useChatStore } from '@/store/chat-store'
-import { AudioProcessor, AudioProcessorOptions, AudioStatus } from '@/lib/audio/audio-processor'
-import { GeminiLiveAPIClientV2 } from '@/lib/gemini/live-api-client-v2'
+import { GeminiLiveAPIClientV3 } from '@/lib/gemini/live-api-client-v3'
 import { TokenService } from '@/lib/api/token-service'
 
 export function useVirtualHuman() {
@@ -19,19 +18,18 @@ export function useVirtualHuman() {
     clearHistory
   } = useChatStore()
 
-  const audioProcessorRef = useRef<AudioProcessor | null>(null)
-  const geminiClientRef = useRef<GeminiLiveAPIClientV2 | null>(null)
+  const geminiClientRef = useRef<GeminiLiveAPIClientV3 | null>(null)
   const [isInitialized, setIsInitialized] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<string>('disconnected')
   const [reconnectInfo, setReconnectInfo] = useState({ attempts: 0, maxAttempts: 5, isReconnecting: false })
-  const [audioStatus, setAudioStatus] = useState<AudioStatus>({
+  const [audioStatus] = useState({
     isSpeechActive: false,
     speechProbability: 0,
     bufferLevel: 0,
     isRecording: false,
     isStreaming: false
   })
-  const [audioSettings, setAudioSettings] = useState<AudioProcessorOptions>({
+  const [audioSettings, setAudioSettings] = useState({
     vadEnabled: true,
     vadThreshold: 0.01,
     streamingMode: true,
@@ -39,48 +37,16 @@ export function useVirtualHuman() {
     enableNoiseReduction: true
   })
 
-  // Initialize audio processor (delayed until user interaction)
+  // Audio initialization is now handled by the Gemini client directly  
   const initializeAudioWithUserGesture = async () => {
-    if (audioProcessorRef.current) {
-      console.log('Audio processor already initialized')
-      return true
-    }
-
-    try {
-      console.log('Initializing audio processor with user gesture...')
-      
-      // Check for browser support first
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        console.warn('ブラウザが音声機能をサポートしていません - テキストモードのみ利用可能')
-        return false
-      }
-
-      const processor = new AudioProcessor(
-        (_audioData) => {
-          // Audio data is now handled by the new client internally
-          // The V2 client handles audio streaming directly
-          console.log('Audio data received from processor')
-        },
-        (error) => {
-          console.error('Audio processor error:', error)
-          setError(`音声処理エラー: ${error.message}`)
-        },
-        (status) => {
-          // Update audio status
-          setAudioStatus(status)
-        },
-        audioSettings
-      )
-
-      await processor.initialize()
-      audioProcessorRef.current = processor
-      console.log('Audio processor initialized successfully')
-      return true
-    } catch (error) {
-      console.error('Failed to initialize audio:', error)
-      console.warn('音声初期化に失敗しましたが、接続は可能です:', error instanceof Error ? error.message : 'Unknown error')
+    // Check for browser support
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      console.warn('ブラウザが音声機能をサポートしていません - テキストモードのみ利用可能')
       return false
     }
+    
+    console.log('Audio capabilities confirmed - ready for connection')
+    return true
   }
 
   // Basic initialization without audio (only check browser compatibility)
@@ -118,16 +84,43 @@ export function useVirtualHuman() {
       // Initialize audio on user gesture (if not already initialized)
       await initializeAudioWithUserGesture()
 
-      // Get API key from environment
-      console.log('Using direct API key for Gemini Live...')
-      const apiKey = import.meta.env.VITE_GEMINI_API_KEY
-      if (!apiKey) {
-        throw new Error('VITE_GEMINI_API_KEY not configured in environment variables')
+      // Get API key securely from BFF
+      console.log('Fetching secure API key from BFF...')
+      
+      // First get auth token
+      let authToken = token
+      if (!authToken) {
+        console.log('No auth token found, requesting new token...')
+        const tokenResponse = await fetch('/api/auth/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        })
+        if (!tokenResponse.ok) {
+          throw new Error('Failed to get authentication token')
+        }
+        const tokenData = await tokenResponse.json()
+        authToken = tokenData.token
+        setToken(authToken)
+        console.log('Auth token obtained successfully')
       }
+
+      // Get Gemini config with API key
+      const configResponse = await fetch('/api/gemini/config', {
+        headers: {
+          'Authorization': `Bearer ${authToken}`,
+          'Content-Type': 'application/json'
+        }
+      })
+      if (!configResponse.ok) {
+        throw new Error('Failed to get Gemini configuration from BFF')
+      }
+      const geminiConfig = await configResponse.json()
+      const apiKey = geminiConfig.apiKey
+      console.log('Secure API key obtained from BFF')
 
       // Create Gemini client with direct API key
       console.log('Creating Gemini Live API client...')
-      const client = new GeminiLiveAPIClientV2(
+      const client = new GeminiLiveAPIClientV3(
         apiKey,
         (message) => {
           console.log('Received message from Gemini:', message.type)
@@ -207,22 +200,36 @@ export function useVirtualHuman() {
     if (mic === 'idle') {
       // Start recording using new client
       try {
+        setError(null) // Clear any previous errors
+        console.log('Starting microphone recording...')
+        
         await geminiClientRef.current!.startRecording()
-        setMic('recording')
+        
+        // setMic is handled by the client itself via useChatStore
         addMessage({
           role: 'user',
           text: '🎤 音声入力中...',
           messageType: 'audio'
         })
+        
+        console.log('Microphone recording started successfully')
       } catch (error) {
         console.error('Failed to start recording:', error)
         const errorMessage = error instanceof Error ? error.message : 'Unknown error'
         setError(`録音開始に失敗しました: ${errorMessage}`)
+        setMic('idle') // Ensure mic state is reset on error
       }
-    } else {
+    } else if (mic === 'recording' || mic === 'connecting') {
       // Stop recording
+      console.log('Stopping microphone recording...')
       geminiClientRef.current!.stopRecording()
-      setMic('idle')
+      // setMic is handled by the client itself via useChatStore
+      
+      addMessage({
+        role: 'user', 
+        text: '🔇 音声入力停止',
+        messageType: 'audio'
+      })
     }
   }
 
@@ -235,9 +242,8 @@ export function useVirtualHuman() {
   const resetConversation = () => {
     clearHistory()
     stopPlayback()
-    if (mic === 'recording') {
-      audioProcessorRef.current?.stopRecording()
-      setMic('idle')
+    if (mic === 'recording' || mic === 'connecting') {
+      geminiClientRef.current?.stopRecording()
     }
   }
 
@@ -285,90 +291,17 @@ export function useVirtualHuman() {
   useEffect(() => {
     return () => {
       disconnect()
-      audioProcessorRef.current?.dispose()
     }
   }, [])
 
   // Audio settings control functions
-  const updateAudioSettings = (newSettings: Partial<AudioProcessorOptions>) => {
+  const updateAudioSettings = (newSettings: any) => {
     const updatedSettings = { ...audioSettings, ...newSettings }
     setAudioSettings(updatedSettings)
-    
-    // Apply settings to existing processor
-    if (audioProcessorRef.current) {
-      if (newSettings.vadEnabled !== undefined || newSettings.vadThreshold !== undefined) {
-        audioProcessorRef.current.setVADSettings(
-          newSettings.vadEnabled ?? updatedSettings.vadEnabled!,
-          newSettings.vadThreshold ?? updatedSettings.vadThreshold
-        )
-      }
-      
-      if (newSettings.streamingMode !== undefined) {
-        audioProcessorRef.current.setStreamingMode(newSettings.streamingMode)
-      }
-    }
+    // V3 client handles audio processing internally
   }
 
-  // Enhanced mic control with better feedback
-  const enhancedToggleMic = () => {
-    if (!isInitialized || !audioProcessorRef.current) {
-      setError('音声システムが初期化されていません')
-      return
-    }
 
-    // Check if Gemini client is connected
-    if (!geminiClientRef.current?.isWebSocketConnected()) {
-      setError('Gemini APIに接続されていません。接続してから音声入力を開始してください。')
-      return
-    }
-
-    if (mic === 'idle') {
-      // Start recording with enhanced feedback
-      audioProcessorRef.current.startRecording()
-      setMic('recording')
-      addMessage({
-        role: 'user',
-        text: audioSettings.vadEnabled ? 
-          '🎤 音声入力中... (音声検出機能ON)' : 
-          '🎤 音声入力中...'
-      })
-    } else {
-      // Stop recording
-      audioProcessorRef.current.stopRecording()
-      setMic('idle')
-      
-      // Show final status
-      if (audioStatus.isStreaming) {
-        addMessage({
-          role: 'user',
-          text: '📡 音声データ送信完了'
-        })
-      }
-    }
-  }
-
-  // Force send current audio buffer (useful for manual control)
-  const flushAudioBuffer = () => {
-    if (audioProcessorRef.current && mic === 'recording') {
-      audioProcessorRef.current.stopRecording()
-      audioProcessorRef.current.startRecording()
-    }
-  }
-
-  // Get detailed audio diagnostics
-  const getAudioDiagnostics = () => {
-    return {
-      audioStatus,
-      audioSettings,
-      isInitialized,
-      processorStatus: audioProcessorRef.current?.getStatus(),
-      connectionHealth: {
-        isConnected: geminiClientRef.current?.isWebSocketConnected() || false,
-        connectionStatus,
-        reconnectInfo
-      }
-    }
-  }
 
   // Send text message function
   const handleSendTextMessage = async (text: string) => {
@@ -404,7 +337,7 @@ export function useVirtualHuman() {
     isInitialized,
     connect,
     disconnect,
-    toggleMic: enhancedToggleMic, // Use enhanced version
+    toggleMic, // Use new V3 client version
     stopPlayback,
     resetConversation,
     
@@ -416,14 +349,9 @@ export function useVirtualHuman() {
     reconnectInfo,
     isWebSocketConnected: () => geminiClientRef.current?.isWebSocketConnected() || false,
     
-    // Audio status and controls
+    // Audio status and controls (simplified for V3 client)
     audioStatus,
     audioSettings,
-    updateAudioSettings,
-    flushAudioBuffer,
-    getAudioDiagnostics,
-    
-    // Backward compatibility
-    toggleMicOriginal: toggleMic // Keep original name as alias
+    updateAudioSettings
   }
 }

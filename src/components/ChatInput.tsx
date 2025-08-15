@@ -24,6 +24,7 @@ export function ChatInput({
   const { sendTextMessage, mic } = useChatStore()
   
   const isRecording = mic === 'recording'
+  const isConnecting = mic === 'connecting'
   const canSend = text.trim().length > 0 && !isSending && !disabled
 
   // Auto-resize textarea
@@ -76,6 +77,11 @@ export function ChatInput({
       <div className="flex items-center gap-2 mb-2">
         <Type className="w-4 h-4 text-muted-foreground" aria-hidden="true" />
         <span className="text-sm text-muted-foreground">テキストメッセージ</span>
+        {isConnecting && (
+          <span className="text-xs text-blue-600 bg-blue-100 px-2 py-1 rounded-full">
+            マイク接続中...
+          </span>
+        )}
         {isRecording && (
           <span className="text-xs text-amber-600 bg-amber-100 px-2 py-1 rounded-full">
             音声録音中でも入力可能

@@ -18,7 +18,8 @@
       "mcp__playwright__browser_evaluate",
       "mcp__playwright__browser_type",
       "Bash(gcloud run services describe:*)",
-      "Bash(gcloud logs tail:*)"
+      "Bash(gcloud logs tail:*)",
+      "mcp__context7__get-library-docs"
     ],
     "defaultMode": "acceptEdits"
   },
