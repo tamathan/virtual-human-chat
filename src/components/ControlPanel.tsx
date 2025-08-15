@@ -37,6 +37,7 @@ export function ControlPanel({
   const [isTextInputCollapsed, setIsTextInputCollapsed] = useState(false)
   
   const isRecording = mic === 'recording'
+  const isConnecting = mic === 'connecting'
   const isPlaying = playback === 'playing'
   const isSpeechDetected = audioStatus?.isSpeechActive || false
   const speechProbability = audioStatus?.speechProbability || 0
@@ -161,27 +162,35 @@ export function ControlPanel({
             variant={isRecording ? "destructive" : "default"}
             className={cn(
               "w-20 h-20 rounded-full transition-all duration-200 flex flex-col items-center justify-center",
-              !isConnected && "bg-gray-300 cursor-not-allowed",
-              isConnected && !isRecording && "bg-blue-600 hover:bg-blue-700",
+              !isConnected && !isConnecting && "bg-gray-300 cursor-not-allowed",
+              isConnecting && "bg-yellow-500 animate-pulse",
+              isConnected && !isRecording && !isConnecting && "bg-blue-600 hover:bg-blue-700",
               isRecording && "bg-red-600 hover:bg-red-700 animate-pulse",
               isSpeechDetected && isRecording && "ring-4 ring-green-400 ring-opacity-50",
               isStreaming && "ring-4 ring-blue-400 ring-opacity-50"
             )}
             onClick={onMicToggle}
             onKeyDown={(e) => handleKeyDown(e, onMicToggle)}
-            disabled={!isConnected}
+            disabled={!isConnected && !isConnecting}
             aria-label={
-              isRecording 
-                ? "音声入力を停止" 
-                : isConnected 
-                  ? "音声入力を開始" 
-                  : "接続が必要です"
+              isConnecting
+                ? "マイク接続中..."
+                : isRecording 
+                  ? "音声入力を停止" 
+                  : isConnected 
+                    ? "音声入力を開始" 
+                    : "接続が必要です"
             }
             aria-describedby="mic-button-description"
             aria-pressed={isRecording}
             title={isRecording ? "クリックまたはスペースキーで音声入力を停止" : "クリックまたはスペースキーで音声入力を開始"}
           >
-            {isRecording ? (
+            {isConnecting ? (
+              <>
+                <div className="animate-spin w-8 h-8 border-2 border-white border-t-transparent rounded-full" aria-hidden="true" />
+                <span className="text-xs mt-1">接続中</span>
+              </>
+            ) : isRecording ? (
               <>
                 <MicOff className="w-8 h-8" aria-hidden="true" />
                 <span className="text-xs mt-1">停止</span>
@@ -194,7 +203,7 @@ export function ControlPanel({
             )}
           </Button>
           <div className="text-xs text-center text-muted-foreground max-w-20">
-            {isRecording ? "録音中" : isConnected ? "マイク" : "未接続"}
+            {isConnecting ? "接続中" : isRecording ? "録音中" : isConnected ? "マイク" : "未接続"}
           </div>
         </div>
 

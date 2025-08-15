@@ -17,6 +17,7 @@ export function ConnectionStatus() {
 
   const getStatusText = () => {
     if (playback === 'playing') return 'Playing'
+    if (mic === 'connecting') return 'Connecting to microphone'
     if (mic === 'recording') return 'Recording'
     if (connection === 'connecting') return 'Connecting'
     if (connection === 'connected') return 'Connected'
