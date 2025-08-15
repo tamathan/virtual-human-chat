@@ -73,7 +73,7 @@ export function SimpleAvatar({
   // 状態に基づく口の形
   const getMouthStyle = () => {
     switch (state) {
-      case 'speaking':
+      case 'speaking': {
         const mouthShapes = [
           'w-4 h-2 rounded-full', // あ
           'w-2 h-3 rounded-full', // い
@@ -81,6 +81,7 @@ export function SimpleAvatar({
           'w-4 h-1 rounded-full'  // え
         ]
         return mouthShapes[mouthPhase]
+      }
       
       case 'listening':
         return 'w-2 h-2 rounded-full' // 小さく開いた口
