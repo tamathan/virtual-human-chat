@@ -113,6 +113,46 @@ export interface ApiError extends Error {
   details?: any
 }
 
+// Avatar & Visualization types
+export type AvatarState = 'idle' | 'listening' | 'speaking' | 'thinking'
+export type AvatarEmotion = 'neutral' | 'happy' | 'surprised' | 'concerned' | 'focused'
+
+export interface AvatarProps {
+  state: AvatarState
+  emotion: AvatarEmotion
+  speechIntensity: number // 0-1, 音声強度
+  isAnimated?: boolean
+}
+
+export interface ConversationDisplayProps {
+  messages: ChatMessage[]
+  currentSpeaker?: 'user' | 'assistant' | null
+  currentText?: string
+  isTyping?: boolean
+}
+
+export interface SubtitleDisplayProps {
+  text: string
+  speaker: 'user' | 'assistant'
+  isVisible: boolean
+  position?: 'top' | 'bottom' | 'center'
+}
+
+export interface SpeechBubbleProps {
+  message: ChatMessage
+  isLatest?: boolean
+  showTimestamp?: boolean
+}
+
+// Audio visualization types
+export interface AudioVisualizationData {
+  waveform: number[] // 波形データ
+  spectrum: number[] // スペクトラムデータ
+  pitch: number // ピッチ
+  volume: number // 音量 0-1
+  formants?: number[] // フォルマント周波数
+}
+
 // Environment types
 export interface EnvironmentConfig {
   VITE_BFF_URL?: string
